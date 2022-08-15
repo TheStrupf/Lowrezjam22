@@ -1,6 +1,8 @@
 #ifndef JSONP_H
 #define JSONP_H
 
+// TODO: CRASH WITH EMPTY ARRAYS
+
 #include <stdbool.h>
 
 // token based lightweight parser inspired by jsmn:
@@ -60,10 +62,8 @@ typedef struct jsn {
         int end;
 
         struct jsn *first_child;
-        union {
-                struct jsn *last_child; // only used for parsing
-                struct jsn *next_sibling;
-        };
+        struct jsn *last_child; // only used for parsing
+        struct jsn *next_sibling;
 } jsn;
 
 // json_parse returns a code

@@ -3,81 +3,114 @@
 #include <stdlib.h>
 #include <string.h>
 
-list *list_create_sized(int cap, size_t esize)
+typedef struct arrheader {
+        int cap;
+        int n;
+        size_t esize;
+} arrheader;
+
+static const size_t ARRHEADERSIZE = sizeof(arrheader);
+#define ARRHEADER(P) ((arrheader *)((char *)P - ARRHEADERSIZE))
+
+int arr_len(void *arr)
 {
-        void *m1 = MALLOC(sizeof(list));
-        if (m1) {
-                void *m2 = MALLOC(esize * cap);
-                if (m2) {
-                        list *l = m1;
-                        l->data = m2;
-                        l->esize = esize;
-                        l->n = 0;
-                        l->cap = cap;
-                        return l;
-                }
-                FREE(m1);
+        return ARRHEADER(arr)->n;
+}
+
+void *arr_new_sized(int cap, size_t esize)
+{
+        void *mem = MALLOC(ARRHEADERSIZE + cap * esize);
+        if (mem) {
+                arrheader *h = mem;
+                h->cap = cap;
+                h->esize = esize;
+                h->n = 0;
+                return (char *)mem + ARRHEADERSIZE;
         }
         return NULL;
 }
 
-void list_destroy(list *l)
+void *arr_new(size_t esize)
 {
-        if (l) {
-                FREE(l->data);
-                FREE(l);
+        return (arr_new_sized(16, esize));
+}
+
+void arr_destroy(void *arr)
+{
+        FREE(ARRHEADER(arr));
+}
+
+void arr_clear(void *arr)
+{
+        ARRHEADER(arr)->n = 0;
+}
+
+static void arr_set_(void *arr, void *p, int at)
+{
+        arrheader *h = ARRHEADER(arr);
+        memcpy((char *)arr + at * h->esize, p, h->esize);
+}
+
+void *arr_push_(void *arr, void *p)
+{
+        void *array = arr;
+        arrheader *h = ARRHEADER(arr);
+        if (h->n == h->cap) {
+                int prevn = h->n;
+                array = arr_new_sized(h->cap * 2, h->esize);
+                if (!array) return NULL;
+                h = ARRHEADER(array);
+                h->n = prevn;
+                memcpy(array, arr, h->n * h->esize);
         }
+        arr_set_(array, p, h->n++);
+        return array;
 }
 
-void list_push(list *l, void *p)
+void arr_del_at(void *arr, int i)
 {
-        if (l->n == l->cap) {
-                void *temp = REALLOC(l->data, l->esize * l->cap * 2);
-                if (!temp) return;
-                l->cap *= 2;
-                l->data = temp;
-        }
-        list_set(l, p, l->n++);
+        arrheader *h = ARRHEADER(arr);
+        if (i < 0 || i >= h->n) return;
+        if (i < --h->n)
+                memmove((char *)arr + i * h->esize,
+                        (char *)arr + (i + 1) * h->esize,
+                        h->esize * (h->n - i));
 }
 
-void list_set(list *l, void *p, int i)
+void arr_del(void *arr, void *p)
 {
-        memcpy((char *)l->data + i * l->esize, p, l->esize);
+        arr_del_at(arr, arr_find(arr, p));
 }
 
-void list_del_at(list *l, int i)
+int arr_find(void *arr, void *p)
 {
-        if (i < 0 || i >= l->n) return;
-        if (--l->n > 0)
-                memmove(
-                    (char *)l->data + i * l->esize,
-                    (char *)l->data + (i + 1) * l->esize,
-                    l->esize * (l->n - i));
-}
-
-void list_del(list *l, void *p)
-{
-        list_del_at(l, list_find(l, p));
-}
-
-int list_find(list *l, void *p)
-{
-        char *it = l->data;
-        for (int n = 0; n < l->n; n++, it += l->esize) {
-                if (memcmp(it, p, l->esize) == 0)
+        arrheader *h = ARRHEADER(arr);
+        char *it = arr;
+        for (int n = 0; n < h->n; n++, it += h->esize) {
+                if (memcmp(it, p, h->esize) == 0)
                         return n;
         }
         return -1;
 }
 
-void list_pop(list *l, void *out)
+void arr_pop(void *arr, void *p)
 {
-        if (l->n == 0) memset(out, 0, l->esize);
-        else list_get(l, --l->n, out);
+        arrheader *h = ARRHEADER(arr);
+        if (h->n > 0) memcpy(p, (char *)arr + --h->n, h->esize);
+        else memset(p, 0, h->esize);
 }
 
-void list_get(list *l, int i, void *out)
+void *arr_insert_(void *arr, void *p, int at)
 {
-        if (i < l->n) memcpy(out, (char *)l->data + i * l->esize, l->esize);
-        else memset(out, 0, l->esize);
+        arrheader *h = ARRHEADER(arr);
+        if (at > h->n) return arr;
+        void *array = arr_push_(arr, p);
+        if (!array) return array;
+
+        h = ARRHEADER(array);
+        memmove((char *)array + (at + 1) * h->esize,
+                (char *)array + at * h->esize,
+                h->esize * (h->n + 1 - at));
+        arr_set_(array, p, at);
+        return array;
 }

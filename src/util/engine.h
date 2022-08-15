@@ -52,9 +52,16 @@ typedef struct circ {
 #define COLORS 32
 #define COL_TRANSPARENT 255
 
-#define MALLOC(s) mem_alloc(s)
+#if 1
+#define MALLOC(s) mem_alloc(s, 0)
+#define CALLOC(s, i) mem_alloc(s, i)
 #define FREE(p) mem_free(p)
 #define REALLOC(p, s) mem_realloc(p, s)
+#else
+#define MALLOC(s) malloc(s)
+#define FREE(p) free(p)
+#define REALLOC(p, s) realloc(p, s)
+#endif
 
 enum colorID {
         COL_BLACK,
@@ -104,6 +111,10 @@ typedef struct snd {
         ushort ID;
 } snd;
 
+typedef struct mus {
+        ushort ID;
+} mus;
+
 typedef enum buttons {
         BTN_START = 1,
         BTN_SELECT = 2,
@@ -117,9 +128,15 @@ typedef enum buttons {
         BTN_FACE_DOWN = 512,
         BTN_L_SHOULDER = 1024,
         BTN_R_SHOULDER = 2048,
+        BTN_MOUSE_LEFT = 4096,
+        BTN_MOUSE_RIGHT = 8192,
+        BTN_ESC = 16384,
+        BTN_Q = 32768,
+        BTN_E = 65536,
 } buttons;
 
 void vm_run();
+int vm_currenttick();
 
 // === GFX ===
 void gfx_set_translation(int x, int y);
@@ -131,18 +148,29 @@ tex gfx_tex_load(const char *);
 void gfx_tex_destroy(tex);
 void gfx_clear_tex(tex t, uchar c);
 void gfx_clear(uchar);
+int gfx_closest_col(int r, int g, int b);
+int gfx_closest_col_merged_rgb(int col, int r, int g, int b, int a);
 void gfx_px(int x, int y, uchar col);
-void gfx_sprite(tex s, int x, int y, rec r, uchar flags);
+void gfx_px_sorted(int z, int x, int y, uchar col);
+void gfx_sprite_complete(tex s, int x, int y, int flags);
+void gfx_sprite(tex s, int x, int y, rec r, int flags);
+void gfx_sprite_sorted(int z, tex s, int x, int y, rec r, int flags);
+void gfx_sprite_sortedpal(int z, tex s, int x, int y, rec r, int flags, int pal);
+void gfx_sorted_flush();
 void gfx_sprite_affine(tex s, v2 p, v2 o, rec r, m2 m);
 void gfx_line(int x1, int y1, int x2, int y2, uchar col);
 void gfx_rec_filled(int x, int y, uint w, uint h, uchar col);
 void gfx_rec_outline(int x, int y, uint w, uint h, uchar col);
 void gfx_circle_filled(int xm, int ym, int r, uchar col);
 void gfx_circle_outline(int xm, int ym, int r, uchar col);
+void gfx_triangle_filled(v2i, v2i, v2i, uchar col);
+void gfx_apply_outline(uchar outlinecol);
 uchar gfx_pal_get(int index);
 void gfx_pal_shift(int s);
 void gfx_pal_set(uchar index, uchar col);
+void gfx_pal_apply(uchar *, int l);
 void gfx_pal_reset();
+void gfx_pal_select(int ID);
 void gfx_draw_to(tex);
 void gfx_clip(int x, int y, int w, int h);
 void gfx_unclip();
@@ -150,8 +178,11 @@ void gfx_unclip();
 // === SND ===
 snd aud_load(const char *);
 void aud_play_sound(snd);
+void aud_play_sound_ext(snd, float pitch, float vol);
 void aud_set_volume(float);
 float aud_volume();
+void aud_play_mus(const char *);
+void aud_set_mus_volume(float);
 
 // === INP ===
 buttons inp_state();
@@ -162,16 +193,36 @@ bool inp_pressed(buttons);
 bool inp_was_pressed(buttons);
 bool inp_just_pressed(buttons);
 bool inp_just_released(buttons);
+int inp_mousex();
+int inp_mousey();
+int inp_mousex_dt();
+int inp_mousey_dt();
+
+typedef struct mempool mempool;
 
 // === MEM ===
 void mem_init(void *, size_t);
-void *mem_alloc(size_t);
+void *mem_alloc(size_t, int);
 void mem_free(void *);
 void *mem_realloc(void *, size_t);
+
+mempool *mempool_create(size_t, int);
+void mempool_destroy(mempool *);
+void *mempool_alloc(mempool *);
+void mempool_free(mempool *, void *);
+void mempool_clear(mempool *);
 
 // === UTIL ===
 char *read_txt(const char *filename);
 ulong isqrt(ulong);
+
+// max inclusive: 32767
+uint rng_next();
+int rng_range(int from_incl, int to_incl);
+int rng(int max_excl);
+
+float rngf_range(float from, float to);
+float rngf(float max);
 
 bool try_rec_intersection(rec a, rec b, rec *r);
 rec rec_intersection(rec, rec);
@@ -191,12 +242,18 @@ m2 m2_aff_scl(float x, float y);
 m2 m2_aff_shr(float x, float y);
 float m2_det(m2 a);
 
-#define STREQ(a, b) (strcmp((a), (b)) == 0)
+#define STREQ(a, b) (strcmp(a, b) == 0)
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
-#define ABS(a) ((a) > 0 ? (a) : -(a))
+#define ABS(a) ((a) >= 0 ? (a) : -(a))
 #define COMP(a, b) (((a) < (b)) - ((a) > (b)))
 #define SIGN(a) COMP(0, a)
+#define SWAP(T, a, b)       \
+        do {                \
+                T tmp_ = a; \
+                a = b;      \
+                b = tmp_;   \
+        } while (0)
 
 static inline v2 v2_add(v2 a, v2 b)
 {
@@ -232,6 +289,61 @@ static inline v2 m2v2_mul(m2 m, v2 v)
 {
         return (v2){m.m11 * v.x + m.m12 * v.y, m.m21 * v.x + m.m22 * v.y};
 }
+
+static inline float distance_sq(float x1, float y1, float x2, float y2)
+{
+        float dx = x2 - x1;
+        float dy = y2 - y1;
+        return dx * dx + dy * dy;
+}
+
+float v2_len(v2 a);
+float v2_distance(v2 a, v2 b);
+float v2_distance_sq(v2 a, v2 b);
+v2 v2_setlen(v2 v, float l);
+
+#define LL_FOREACHP(T, l) for (T *it = l, *prev = NULL; it; prev = it, it = it->next)
+#define LL_FOREACH(T, l) for (T *it = l; it; it = it->next)
+#define LL_FOREACHI(T, l, i) for (T *i = l; i; i = i->next)
+#define LL_DEL(T, l, o)                                                  \
+        do {                                                             \
+                for (T it = l, *pr = NULL; it; pr = it, it = it->next) { \
+                        if (it == o) {                                   \
+                                if (pr) pr->next = it->next;             \
+                                else l = it->next;                       \
+                                break;                                   \
+                        }                                                \
+                }                                                        \
+        } while (0)
+
+#define LL_PUSH(l, o)                   \
+        do {                            \
+                o->next = l ? l : NULL; \
+                l = o;                  \
+        } while (0)
+
+#define LL_POP(l, o)                \
+        do {                        \
+                o = l;              \
+                if (l) l = l->next; \
+        } while (0)
+
+#define B_0000 0x0
+#define B_0001 0x1
+#define B_0010 0x2
+#define B_0011 0x3
+#define B_0100 0x4
+#define B_0101 0x5
+#define B_0110 0x6
+#define B_0111 0x7
+#define B_1000 0x8
+#define B_1001 0x9
+#define B_1010 0xA
+#define B_1011 0xB
+#define B_1100 0xC
+#define B_1101 0xD
+#define B_1110 0xE
+#define B_1111 0xF
 
 #define B_00000000 0x00
 #define B_00000001 0x01

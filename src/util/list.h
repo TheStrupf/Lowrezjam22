@@ -3,21 +3,20 @@
 
 #include <stdlib.h>
 
-typedef struct list {
-        int cap;
-        int n;
-        size_t esize;
-        void *data;
-} list;
+#define FOREACHI(A, IT) for (int IT = 0; IT < arr_len(A); IT++)
+#define arr_push(A, P) A = arr_push_(A, P)
+#define arr_insert(A, P, i) A = arr_insert_(A, P, i)
 
-list *list_create_sized(int, size_t);
-void list_destroy(list *);
-void list_push(list *, void *);
-void list_set(list *, void *, int);
-void list_del_at(list *, int);
-void list_del(list *, void *);
-int list_find(list *, void *);
-void list_pop(list *, void *);
-void list_get(list *, int, void *);
+int arr_len(void *arr);
+void *arr_new_sized(int cap, size_t esize);
+void *arr_new(size_t esize);
+void arr_destroy(void *arr);
+void arr_clear(void *arr);
+void *arr_push_(void *arr, void *p);
+void arr_del_at(void *arr, int i);
+void arr_del(void *arr, void *p);
+int arr_find(void *arr, void *p);
+void arr_pop(void *arr, void *p);
+void *arr_insert_(void *arr, void *p, int at);
 
 #endif

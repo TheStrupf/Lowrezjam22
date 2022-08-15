@@ -45,11 +45,10 @@ static jsn *newtok(int type)
         if (parent) {
                 if (!parent->first_child) {
                         parent->first_child = t;
-                        parent->last_child = t;
                 } else {
                         parent->last_child->next_sibling = t;
-                        parent->last_child = t;
                 }
+                parent->last_child = t;
         }
 
         return t;
@@ -67,7 +66,10 @@ int json_parse(char *s, jsn *tokens, int num_tok)
 
         // www.json.org for a flow chart
         for (char c = s[i]; c != '\0'; c = s[++i]) {
-                if (curr_tok >= num_tok - 2) return JSON_RET_TOKEN_LIMIT;
+                if (curr_tok >= num_tok - 2) {
+                        printf("Token LIMIT\n");
+                        return JSON_RET_TOKEN_LIMIT;
+                }
 
                 // tokens signaling the begin of a number
                 if ((48 <= c && c <= 57) || c == '-') {
@@ -84,17 +86,26 @@ int json_parse(char *s, jsn *tokens, int num_tok)
                 switch (c) {
                 case '[':
                 case '{':
-                        if (spos >= JSON_STACK_DEPTH)
+                        if (spos >= JSON_STACK_DEPTH) {
+                                printf("STACK DEPTH\n");
                                 return JSON_RET_REACHED_DEPTH;
-                        stack[spos] = newtok(c == '{' ? JSON_OBJ : JSON_ARR);
+                        }
+
+                        int type = (c == '{' ? JSON_OBJ : JSON_ARR);
+                        stack[spos] = newtok(type);
+                        for (int n = 0; n < spos; n++) printf("  ");
                         spos++; // incr AFTER previous line
+
                         break;
                 case '}':
                 case ']':
                         link_key_value = false;
-                        tok = stack[--spos];
+                        spos--;
+                        for (int n = 0; n < spos; n++) printf("  ");
+                        tok = stack[spos];
                         tok->end = i;
-                        tok->last_child = NULL; // explicitly clear bc of union
+                        tok->last_child = NULL;
+                        if (spos == 0) return 0;
                         break;
                 case ':':
                         link_key_value = true;
@@ -102,7 +113,6 @@ int json_parse(char *s, jsn *tokens, int num_tok)
                 case '\"':
                         tok = newtok(JSON_STR);
                         tok->start++;
-
                         while (s[++i] != '\"') {}
                         tok->end = i - 1;
                         break;
